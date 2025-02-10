@@ -79,3 +79,27 @@ def from_standard(X, mean, std):
         (array, tensor): array or tensor of shape (n points, dim)
     """
     return X * std + mean
+
+def to_volume_preserving_standard(X):
+    '''
+    TODO: swap in
+    '''
+    N, twod = X.shape
+    d = twod // 2
+    assert d * 2 == twod
+    std = X.std(axis=0) # probably should be based on percentiles not std
+    tau = std[:d] / std[d:] # units of time; BRITTLE: assumes xs before vs
+    offsets = torch.zeros(twod) # HACK: hard code zero offsets
+    scales = torch.zeros(twod)
+    scales[:d] = tau.sqrt() # BRITTLE: see above
+    scales[d:] = 1. / scales[:d] # ensures volume preservation
+    return (X - offsets) / scales, offsets, scales
+
+def load_variables(X, V):
+    '''
+    Inputs (X,V) numpy arrays
+    Return volume-preserving standardized (X,V) in torch.Tensor
+    '''
+    XV = torch.from_numpy(np.stack((X,V), axis=-1)).float()
+    XV, XV_mean, XV_std = to_volume_preserving_standard(XV)
+    return XV, XV_mean, XV_std

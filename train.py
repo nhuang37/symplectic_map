@@ -14,16 +14,16 @@ import numpy as np
 import sys
 
 from model import HenonNet
-from utils import generate_split, to_standard, from_standard
+from utils import generate_split, to_standard, from_standard, to_volume_preserving_standard, load_variables
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--num_layers', type=int, default=2)
-    parser.add_argument('--hid_dim', type=int, default=32)
+    parser.add_argument('--hid_dim', type=int, default=16)
     parser.add_argument('--tie_weights', action='store_true', help='if used, then tie weights in the HenonLayer across 4 Henon Maps')
     parser.add_argument('--num_epochs', type=int, default=30)
-    parser.add_argument('--lr', type=float, default=1e-4)
-    parser.add_argument('--batch_size', type=int, default=128)
+    parser.add_argument('--lr', type=float, default=1e-2)
+    parser.add_argument('--batch_size', type=int, default=256)
     parser.add_argument('--eval_every', type=int, default=10)
     parser.add_argument('--seed', type=int, default=999)
     parser.add_argument('--filename', type=str, default='data_1D_dim=2.pkl')
@@ -36,14 +36,9 @@ if __name__ == '__main__':
 
     #load data, generate split, and construct data loaders
     data_dict = pickle.load(open(args.filename, "rb"))
-    X = data_dict['X']
-    V = data_dict['V']
-    XV, XV_mean, XV_std = to_standard(np.stack((X,V), axis=-1))
-    XV = torch.from_numpy(XV).float() #(num_samples, 2)
-    X_o = data_dict['X_o']
-    V_o = data_dict['V_o']
-    XV_out, XVout_mean, XVout_std = to_standard(np.stack((X_o,V_o), axis=-1))
-    XV_out = torch.from_numpy(XV_out).float() #(num_samples, 2)
+    XV, XV_mean, XV_std = load_variables(data_dict['X'], data_dict['V'])
+    XV_out, XVout_mean, XVout_std = load_variables(data_dict['X_o'], data_dict['V_o'])
+    print(f'Input range: {XV.std(dim=0)}, Output range:{XV_out.std(dim=0)}')
     num_samples = XV.shape[0]
     train_indices, val_indices, test_indices = data_dict['splits']
 
@@ -56,7 +51,7 @@ if __name__ == '__main__':
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     model = HenonNet(input_dim=1, hid_dim=args.hid_dim, num_layers=args.num_layers, tie_weights=args.tie_weights)
     model = model.to(device)
-    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr)
 
 
     #training
@@ -70,7 +65,7 @@ if __name__ == '__main__':
             x_pred, v_pred = model(xv[:,0:1], xv[:,1:2])
             loss = F.mse_loss(torch.concatenate([x_pred,v_pred],axis=-1), xv_out)
             loss.backward()
-            nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+            #nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             optimizer.step()
             optimizer.zero_grad()
             loss_history.append(loss.item())
@@ -86,8 +81,9 @@ if __name__ == '__main__':
             print(f'epoch = {epoch+1}, validation_loss = {loss_all:.4f}')
     
     #save training loss, model weights
-    save_file = {'train_loss': loss_history, 'data_mean_std': (XVout_mean, XVout_std),
-                 'x_pred': x_pred.detach().cpu().numpy(), 'v_pred': v_pred.detach().cpu().numpy()}
+    save_file = {'train_loss': loss_history, 'input_mean_std': (XV_mean, XV_std),
+                 'output_mean_std': (XVout_mean, XVout_std),
+                 'x_pred': x_pred.detach().cpu(), 'v_pred': v_pred.detach().cpu()}
     pickle.dump(save_file, open(f"{outdir}/save_file.pkl","wb"))
     torch.save(model.state_dict(), f"{outdir}/model.pth")
     

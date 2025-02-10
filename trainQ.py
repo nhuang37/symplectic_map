@@ -14,7 +14,7 @@ import numpy as np
 import sys
 
 from model import HenonNetsupQ
-from utils import generate_split, to_standard, from_standard
+from utils import generate_split, to_standard, from_standard, to_volume_preserving_standard, load_variables
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -37,14 +37,9 @@ if __name__ == '__main__':
 
     #load data, generate split, and construct data loaders
     data_dict = pickle.load(open(args.filename, "rb"))
-    X = data_dict['X']
-    V = data_dict['V']
-    XV, XV_mean, XV_std = to_standard(np.stack((X,V), axis=-1))
-    XV = torch.from_numpy(XV).float() #(num_samples, 2)
-    X_o = data_dict['X_o']
-    V_o = data_dict['V_o']
-    XV_out, XVout_mean, XVout_std = to_standard(np.stack((X_o,V_o), axis=-1))
-    XV_out = torch.from_numpy(XV_out).float() #(num_samples, 2)
+    XV, XV_mean, XV_std = load_variables(data_dict['X'], data_dict['V'])
+    XV_out, XVout_mean, XVout_std = load_variables(data_dict['X_o'], data_dict['V_o'])
+    print(f'Input range: {XV.std(dim=0)}, Output range:{XV_out.std(dim=0)}')
     Q = torch.from_numpy(data_dict['Q']).float().unsqueeze(1)
     XV_out_Q = torch.concatenate((XV_out, Q), dim=-1)
     num_samples = XV.shape[0]
