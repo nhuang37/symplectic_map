@@ -27,7 +27,7 @@ def HenonMap(X, Y, W_in, W_out, b_in, eta, epsilon=1):
     return X_out, Y_out
 
 class HenonLayer(nn.Module): 
-    def __init__(self, input_dim, hid_dim, epsilon=1, num_maps=4, tie_weights=False, xavier_init=False):
+    def __init__(self, input_dim, hid_dim, epsilon=1, num_maps=4, tie_weights=False, xavier_init=True):
         super().__init__()
         self.input_dim = input_dim  #dimension of X, Y
         self.hid_dim = hid_dim #dimension of X_out, Y_out

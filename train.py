@@ -21,6 +21,8 @@ if __name__ == '__main__':
     parser.add_argument('--num_layers', type=int, default=2)
     parser.add_argument('--hid_dim', type=int, default=16)
     parser.add_argument('--tie_weights', action='store_true', help='if used, then tie weights in the HenonLayer across 4 Henon Maps')
+    parser.add_argument('--epsilon', type=float, default=1.0)
+
     parser.add_argument('--num_epochs', type=int, default=30)
     parser.add_argument('--lr', type=float, default=1e-2)
     parser.add_argument('--batch_size', type=int, default=256)
@@ -49,7 +51,8 @@ if __name__ == '__main__':
 
     #initialize model and optim
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    model = HenonNet(input_dim=1, hid_dim=args.hid_dim, num_layers=args.num_layers, tie_weights=args.tie_weights)
+    model = HenonNet(input_dim=1, hid_dim=args.hid_dim, num_layers=args.num_layers, 
+                     tie_weights=args.tie_weights, epsilon=args.epsilon)
     model = model.to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr)
 
@@ -64,10 +67,10 @@ if __name__ == '__main__':
             xv_out = xv_out.to(device)
             x_pred, v_pred = model(xv[:,0:1], xv[:,1:2])
             loss = F.mse_loss(torch.concatenate([x_pred,v_pred],axis=-1), xv_out)
-            loss.backward()
-            #nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-            optimizer.step()
             optimizer.zero_grad()
+            loss.backward()
+            nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+            optimizer.step()
             loss_history.append(loss.item())
         print(f'epoch = {epoch+1}, step={step}, loss = {loss.item():.4f}')
         if (epoch+1) % args.eval_every == 0:
