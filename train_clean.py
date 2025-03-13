@@ -33,25 +33,26 @@ def relative_MSE(yhat, y, weight=None):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--num_layers', type=int, default=4)
-    parser.add_argument('--hid_dim', type=int, default=32)
+    parser.add_argument('--hid_dim', type=int, default=4)
     parser.add_argument('--tie_weights', action='store_true', help='if used, then tie weights in the HenonLayer across 4 Henon Maps')
-    parser.add_argument('--epsilon', type=float, default=0.01)
+    parser.add_argument('--epsilon', type=float, default=1.0)
 
-    parser.add_argument('--num_epochs', type=int, default=30)
+    parser.add_argument('--num_epochs', type=int, default=100)
     parser.add_argument('--lr', type=float, default=1e-2)
-    parser.add_argument('--batch_size', type=int, default=256)
+    parser.add_argument('--batch_size', type=int, default=512)
     parser.add_argument('--eval_every', type=int, default=5)
     parser.add_argument('--seed', type=int, default=999)
     parser.add_argument('--filename', type=str, default='clean_data_1D_dim=2.pkl')
     parser.add_argument('--save_path', type=str, default='results_clean/')
     parser.add_argument('--relativeMSE', action='store_true', help='relative MSE') 
     parser.add_argument('--weighted', action='store_true', help='weighted MSE') 
-    parser.add_argument('--weight_scale', type=float, default=10)
+    parser.add_argument('--weight_scale', type=float, default=5.0)
+    parser.add_argument('--train_ratio', type=float, default=1.0)
 
 
     args = parser.parse_args()
     #save path
-    outdir = f'{args.save_path}_layer={args.num_layers}_hid={args.hid_dim}_lr={args.lr}_tie={args.tie_weights}_ep={args.num_epochs}_epsilon={args.epsilon}_weightMSE={args.weighted}_wscale={args.weight_scale}'
+    outdir = f'{args.save_path}_layer={args.num_layers}_hid={args.hid_dim}_lr={args.lr}_tie={args.tie_weights}_ep={args.num_epochs}_epsilon={args.epsilon}_weightMSE={args.weighted}_wscale={args.weight_scale}_tratio={args.train_ratio}'
     os.makedirs(outdir, exist_ok=True)
 
     #load data, generate split, and construct data loaders
@@ -67,6 +68,10 @@ if __name__ == '__main__':
     # print(f'input range: {XV.max()}, output range: {XV_out.max()}')
     num_samples = XV.shape[0]
     train_indices, val_indices, test_indices = data_dict['splits']
+    if args.train_ratio < 1.0:
+        n_train = len(train_indices)
+        sub_indices = np.random.choice(n_train, int(n_train*args.train_ratio), replace=False)
+        train_indices = train_indices[sub_indices]
 
     train_dataset = TensorDataset(XV[train_indices, :], XV_out[train_indices, :])
     val_dataset = TensorDataset(XV[val_indices, :], XV_out[val_indices, :])
