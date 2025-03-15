@@ -32,27 +32,29 @@ def relative_MSE(yhat, y, weight=None):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--num_layers', type=int, default=4)
+    parser.add_argument('--num_layers', type=int, default=8) #[2,4,8,12] seems 8 is the best with hid_dim=4
     parser.add_argument('--hid_dim', type=int, default=4)
     parser.add_argument('--tie_weights', action='store_true', help='if used, then tie weights in the HenonLayer across 4 Henon Maps')
     parser.add_argument('--epsilon', type=float, default=1.0)
 
-    parser.add_argument('--num_epochs', type=int, default=100)
-    parser.add_argument('--lr', type=float, default=1e-2)
+    parser.add_argument('--num_epochs', type=int, default=100) #100-500 converging
+    parser.add_argument('--lr', type=float, default=1e-3) #1e-3 seems better than 1e-2
     parser.add_argument('--batch_size', type=int, default=512)
     parser.add_argument('--eval_every', type=int, default=5)
     parser.add_argument('--seed', type=int, default=999)
     parser.add_argument('--filename', type=str, default='clean_data_1D_dim=2.pkl')
     parser.add_argument('--save_path', type=str, default='results_clean/')
     parser.add_argument('--relativeMSE', action='store_true', help='relative MSE') 
-    parser.add_argument('--weighted', action='store_true', help='weighted MSE') 
+    parser.add_argument('--weighted', action='store_true', help='using weighted MSE') 
     parser.add_argument('--weight_scale', type=float, default=5.0)
+    parser.add_argument('--weight_velocity', type=float, default=1.0)
+
     parser.add_argument('--train_ratio', type=float, default=1.0)
 
 
     args = parser.parse_args()
     #save path
-    outdir = f'{args.save_path}_layer={args.num_layers}_hid={args.hid_dim}_lr={args.lr}_tie={args.tie_weights}_ep={args.num_epochs}_epsilon={args.epsilon}_weightMSE={args.weighted}_wscale={args.weight_scale}_tratio={args.train_ratio}'
+    outdir = f'{args.save_path}_layer={args.num_layers}_hid={args.hid_dim}_lr={args.lr}_tie={args.tie_weights}_ep={args.num_epochs}_epsilon={args.epsilon}_weightMSE={args.weighted}_wscale={args.weight_scale}_tratio={args.train_ratio}_wvelo={args.weight_velocity}'
     os.makedirs(outdir, exist_ok=True)
 
     #load data, generate split, and construct data loaders
@@ -102,15 +104,16 @@ if __name__ == '__main__':
             if args.weighted:
                 weight = 0.5*(xv[:,0:1]**2 + xv[:,1:2]**2)  ##effectively Jhat
                 weight = args.weight_scale * weight.repeat(1,2) #match input shape
-                loss = loss_fn(torch.concatenate([x_pred,v_pred],axis=-1), xv_out, weight=weight)
             else:
-                loss = loss_fn(torch.concatenate([x_pred,v_pred],axis=-1), xv_out) #, weight=weight)
+                weight = torch.ones((xv.shape)).to(xv.device)
+                weight[:,-1] *= args.weight_velocity #default: unweighted
+            loss = loss_fn(torch.concatenate([x_pred,v_pred],axis=-1), xv_out, weight=weight)
             optimizer.zero_grad()
             loss.backward()
             #nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             optimizer.step()
             loss_history.append(loss.item())
-        print(f'epoch = {epoch+1}, step={step}, loss = {loss.item():.4f}')
+        print(f'epoch = {epoch+1}, step={step}, loss = {loss.item():.6f}')
         if (epoch+1) % args.eval_every == 0:
             model.eval()
             loss_all = 0
@@ -120,11 +123,12 @@ if __name__ == '__main__':
                 x_pred, v_pred = model(xv[:,0:1], xv[:,1:2])
                 if args.weighted:
                     weight = 0.5*(xv[:,0:1]**2 + xv[:,1:2]**2)  ##effectively Jhat
-                    weight = args.weight_scale * weight.repeat(1,2) #match input shape
-                    loss_all += loss_fn(torch.concatenate([x_pred,v_pred],axis=-1), xv_out, weight=weight).item()
+                    weight = args.weight_scale * weight.repeat(1,2) #match input shape #TODO: upweight the velocity part? it's learning a bit worse than the position
                 else:
-                    loss_all += loss_fn(torch.concatenate([x_pred,v_pred],axis=-1), xv_out).item()#, weight=weight).item()
-            print(f'epoch = {epoch+1}, validation_loss = {loss_all:.4f}')
+                    weight = torch.ones((xv.shape)).to(xv.device)
+                    weight[:,-1] *= args.weight_velocity #default: unweighted
+                loss_all += loss_fn(torch.concatenate([x_pred,v_pred],axis=-1), xv_out, weight=weight).item()
+            print(f'epoch = {epoch+1}, validation_loss = {loss_all:.6f}')
     
     #save training loss, model weights
     save_file = {'train_loss': loss_history, 'input_mean_std': (XV_mean, XV_std),
