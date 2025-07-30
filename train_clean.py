@@ -40,10 +40,10 @@ if __name__ == '__main__':
     parser.add_argument('--num_epochs', type=int, default=100) #100-500 converging
     parser.add_argument('--lr', type=float, default=1e-3) #1e-3 seems better than 1e-2
     parser.add_argument('--batch_size', type=int, default=512)
-    parser.add_argument('--eval_every', type=int, default=5)
+    parser.add_argument('--eval_every', type=int, default=1)
     parser.add_argument('--seed', type=int, default=999)
     parser.add_argument('--filename', type=str, default='clean_data_1D_dim=2.pkl')
-    parser.add_argument('--save_path', type=str, default='results_clean/')
+    parser.add_argument('--save_path', type=str, default='results_clean_search/')
     parser.add_argument('--relativeMSE', action='store_true', help='relative MSE') 
     parser.add_argument('--weighted', action='store_true', help='using weighted MSE') 
     parser.add_argument('--weight_scale', type=float, default=5.0)
@@ -54,7 +54,7 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
     #save path
-    outdir = f'{args.save_path}_layer={args.num_layers}_hid={args.hid_dim}_lr={args.lr}_tie={args.tie_weights}_ep={args.num_epochs}_epsilon={args.epsilon}_weightMSE={args.weighted}_wscale={args.weight_scale}_tratio={args.train_ratio}_wvelo={args.weight_velocity}'
+    outdir = f'{args.save_path}_layer={args.num_layers}_hid={args.hid_dim}_lr={args.lr}_weightMSE={args.weighted}'
     os.makedirs(outdir, exist_ok=True)
 
     #load data, generate split, and construct data loaders
@@ -78,7 +78,7 @@ if __name__ == '__main__':
     train_dataset = TensorDataset(XV[train_indices, :], XV_out[train_indices, :])
     val_dataset = TensorDataset(XV[val_indices, :], XV_out[val_indices, :])
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
-    val_loader = DataLoader(val_dataset, batch_size=len(val_dataset), shuffle=False)
+    val_loader = DataLoader(val_dataset, batch_size=len(val_dataset), shuffle=False) #full batch 
 
     #initialize model and optim
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -95,6 +95,8 @@ if __name__ == '__main__':
     #training
     print("Training model...")
     loss_history = []
+    loss_best = 1e9
+    model_best = None
     for epoch in range(args.num_epochs):  
         model.train()
         for step, (xv, xv_out) in enumerate(train_loader):
@@ -113,29 +115,32 @@ if __name__ == '__main__':
             #nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             optimizer.step()
             loss_history.append(loss.item())
-        print(f'epoch = {epoch+1}, step={step}, loss = {loss.item():.6f}')
-        if (epoch+1) % args.eval_every == 0:
-            model.eval()
-            loss_all = 0
-            for (xv, xv_out) in val_loader:
-                xv = xv.to(device)
-                xv_out = xv_out.to(device)
-                x_pred, v_pred = model(xv[:,0:1], xv[:,1:2])
-                if args.weighted:
-                    weight = 0.5*(xv[:,0:1]**2 + xv[:,1:2]**2)  ##effectively Jhat
-                    weight = args.weight_scale * weight.repeat(1,2) #match input shape #TODO: upweight the velocity part? it's learning a bit worse than the position
-                else:
-                    weight = torch.ones((xv.shape)).to(xv.device)
-                    weight[:,-1] *= args.weight_velocity #default: unweighted
-                loss_all += loss_fn(torch.concatenate([x_pred,v_pred],axis=-1), xv_out, weight=weight).item()
-            print(f'epoch = {epoch+1}, validation_loss = {loss_all:.6f}')
+
+        #eval
+        model.eval()
+        loss_all = 0
+        xv, xv_out = next(iter(val_loader)) #full batch!
+        xv = xv.to(device)
+        xv_out = xv_out.to(device)
+        x_pred, v_pred = model(xv[:,0:1], xv[:,1:2])
+        if args.weighted:
+            weight = 0.5*(xv[:,0:1]**2 + xv[:,1:2]**2)  ##effectively Jhat
+            weight = args.weight_scale * weight.repeat(1,2) #match input shape #TODO: upweight the velocity part? it's learning a bit worse than the position
+        else:
+            weight = torch.ones((xv.shape)).to(xv.device)
+            weight[:,-1] *= args.weight_velocity #default: unweighted
+        loss_cur = loss_fn(torch.concatenate([x_pred,v_pred],axis=-1), xv_out, weight=weight).item()
+        if loss_cur < loss_best:
+            loss_best = loss_cur
+            model_best = model 
+        print(f'epoch = {epoch+1}, train_loss = {loss.item():.6f}, val_loss = {loss_cur:.6f}, best_val_loss = {loss_best:.6f}')
     
     #save training loss, model weights
     save_file = {'train_loss': loss_history, 'input_mean_std': (XV_mean, XV_std),
                  'output_mean_std': (XVout_mean, XVout_std), #'input_max': input_max,
                  'x_pred': x_pred.detach().cpu(), 'v_pred': v_pred.detach().cpu()}
     pickle.dump(save_file, open(f"{outdir}/save_file.pkl","wb"))
-    torch.save(model.state_dict(), f"{outdir}/model.pth")
+    torch.save(model_best.state_dict(), f"{outdir}/model.pth")
     
 
 

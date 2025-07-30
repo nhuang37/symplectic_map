@@ -95,11 +95,14 @@ def to_volume_preserving_standard(X):
     scales[d:] = 1. / scales[:d] # ensures volume preservation
     return (X - offsets) / scales, offsets, scales
 
-def load_variables(X, V):
+def load_variables(X, V, standard=True):
     '''
     Inputs (X,V) numpy arrays
     Return volume-preserving standardized (X,V) in torch.Tensor
     '''
     XV = torch.from_numpy(np.stack((X,V), axis=-1)).float()
-    XV, XV_mean, XV_std = to_volume_preserving_standard(XV)
-    return XV, XV_mean, XV_std
+    if standard:
+        XV, XV_mean, XV_std = to_volume_preserving_standard(XV)
+        return XV, XV_mean, XV_std
+    else:
+        return XV, None, None
